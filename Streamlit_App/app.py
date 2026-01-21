@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 
 from langchain_community.document_loaders import (
     PyPDFLoader,
-    TextLoader,
     WikipediaLoader
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -26,137 +25,176 @@ from langchain_core.output_parsers import StrOutputParser
 load_dotenv()
 st.set_page_config(page_title="Hybrid RAG", layout="wide")
 
-st.title("📄 Hybrid RAG: PDF + Wikipedia")
-st.caption("Ask questions from your PDF, with Wikipedia fallback")
+# ----------------------------------
+# Custom Styling (UI ONLY)
+# ----------------------------------
+st.markdown(
+    """
+    <style>
+    .main-title {
+        font-size: 40px;
+        font-weight: 800;
+        background: linear-gradient(90deg, #4ade80, #22d3ee);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .subtitle {
+        font-size: 16px;
+        color: #94a3b8;
+        margin-bottom: 25px;
+    }
+    .answer-box {
+        background-color: #0f172a;
+        padding: 20px;
+        border-radius: 12px;
+        border-left: 6px solid #22d3ee;
+        font-size: 16px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+st.markdown('<div class="main-title">📄 Hybrid RAG</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="subtitle">Ask questions from your PDF with automatic Wikipedia fallback</div>',
+    unsafe_allow_html=True
+)
 
 # ----------------------------------
-# Sidebar (UI ONLY)
+# Sidebar
 # ----------------------------------
-st.sidebar.header("Upload PDF")
+st.sidebar.header("📂 Upload PDF")
 uploaded_file = st.sidebar.file_uploader(
-    "Upload a PDF document", type=["pdf"]
+    "Choose a PDF file", type=["pdf"]
 )
 
 query = st.sidebar.text_input(
-    "Enter your question",
+    "❓ Ask a question",
     placeholder="e.g. What is BERT?"
 )
 
-run_button = st.sidebar.button("Ask")
+ask_button = st.sidebar.button("🚀 Ask")
 
 # ----------------------------------
-# Run Logic (UNCHANGED)
+# Helpers
 # ----------------------------------
-if uploaded_file and query and run_button:
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
 
-    # Save uploaded PDF temporarily
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        tmp.write(uploaded_file.read())
-        FILE_PATH = tmp.name
+parser = StrOutputParser()
 
-    # 1. Load document
-    documents = PyPDFLoader(FILE_PATH).load()
+# ----------------------------------
+# Main Logic (UNCHANGED)
+# ----------------------------------
+if uploaded_file and query and ask_button:
 
-    # 2. Chunking
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=300,
-        chunk_overlap=50
-    )
-    chunks = splitter.split_documents(documents)
+    with st.spinner("🔍 Reading and analyzing your document..."):
 
-    # 3. Embeddings + Vector Store
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
-    )
-    vectorstore = FAISS.from_documents(chunks, embeddings)
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 2})
+        # Save uploaded file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(uploaded_file.read())
+            FILE_PATH = tmp.name
 
-    # 4. LLM
-    llm = ChatGroq(
-        model="llama-3.1-8b-instant",
-        temperature=0
-    )
+        # Load PDF
+        documents = PyPDFLoader(FILE_PATH).load()
 
-    # 5. Prompts
-    rag_prompt = ChatPromptTemplate.from_template(
-        """
-        Answer the question using ONLY the context below.
-        If the answer is not present, respond with:
-        "Not found in context"
-
-        Context:
-        {context}
-
-        Question:
-        {question}
-
-        Answer:
-        """
-    )
-
-    wiki_prompt = ChatPromptTemplate.from_template(
-        """
-        Answer the question using the Wikipedia context below.
-
-        Context:
-        {context}
-
-        Question:
-        {question}
-
-        Answer:
-        """
-    )
-
-    # 6. Context formatter
-    def format_docs(docs):
-        return "\n\n".join(doc.page_content for doc in docs)
-
-    parser = StrOutputParser()
-
-    # 7. PDF RAG Chain
-    pdf_chain = (
-        RunnableParallel(
-            {
-                "context": retriever | RunnableLambda(format_docs),
-                "question": RunnablePassthrough()
-            }
+        # Chunking
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=300,
+            chunk_overlap=50
         )
-        | rag_prompt
-        | llm
-        | parser
-    )
+        chunks = splitter.split_documents(documents)
 
-    # 8. Wikipedia Chain
-    wiki_chain = (
-        RunnableParallel(
-            {
-                "context": RunnableLambda(
-                    lambda q: WikipediaLoader(
-                        query=q,
-                        load_max_docs=2
-                    ).load()
-                )
-                | RunnableLambda(format_docs),
-                "question": RunnablePassthrough()
-            }
+        # Embeddings + Vector Store
+        embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
         )
-        | wiki_prompt
-        | llm
-        | parser
-    )
+        vectorstore = FAISS.from_documents(chunks, embeddings)
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 2})
 
-    # 9. Execution Logic (same as original)
-    answer = pdf_chain.invoke(query)
+        # LLM
+        llm = ChatGroq(
+            model="llama-3.1-8b-instant",
+            temperature=0
+        )
 
-    if answer.strip().lower() == "not found in context":
-        answer = wiki_chain.invoke(query)
+        # Prompts
+        rag_prompt = ChatPromptTemplate.from_template(
+            """
+            Answer the question using ONLY the context below.
+            If the answer is not present, respond with:
+            "Not found in context"
+
+            Context:
+            {context}
+
+            Question:
+            {question}
+
+            Answer:
+            """
+        )
+
+        wiki_prompt = ChatPromptTemplate.from_template(
+            """
+            Answer the question using the Wikipedia context below.
+
+            Context:
+            {context}
+
+            Question:
+            {question}
+
+            Answer:
+            """
+        )
+
+        # Chains
+        pdf_chain = (
+            RunnableParallel(
+                {
+                    "context": retriever | RunnableLambda(format_docs),
+                    "question": RunnablePassthrough()
+                }
+            )
+            | rag_prompt
+            | llm
+            | parser
+        )
+
+        wiki_chain = (
+            RunnableParallel(
+                {
+                    "context": RunnableLambda(
+                        lambda q: WikipediaLoader(
+                            query=q,
+                            load_max_docs=2
+                        ).load()
+                    )
+                    | RunnableLambda(format_docs),
+                    "question": RunnablePassthrough()
+                }
+            )
+            | wiki_prompt
+            | llm
+            | parser
+        )
+
+        # Execution
+        answer = pdf_chain.invoke(query)
+
+        if answer.strip().lower() == "not found in context":
+            answer = wiki_chain.invoke(query)
 
     # ----------------------------------
-    # Final Output (UI CLEAN)
+    # Final Answer UI
     # ----------------------------------
-    st.subheader("✅ Answer")
-    st.write(answer)
+    st.markdown("### ✅ Answer")
+    st.markdown(
+        f'<div class="answer-box">{answer}</div>',
+        unsafe_allow_html=True
+    )
 
-elif run_button:
-    st.warning("Please upload a PDF and enter a question.")
+elif ask_button:
+    st.warning("⚠️ Please upload a PDF and enter a question.")
