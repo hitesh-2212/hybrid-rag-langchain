@@ -1,4 +1,5 @@
 import os
+import tempfile
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -23,71 +24,50 @@ from langchain_core.output_parsers import StrOutputParser
 # Environment
 # ----------------------------------
 load_dotenv()
-st.set_page_config(page_title="Hybrid RAG App", layout="wide")
+st.set_page_config(page_title="Hybrid RAG", layout="wide")
 
 st.title("📄 Hybrid RAG: PDF + Wikipedia")
-st.caption("Your original RAG logic with a Streamlit interface")
+st.caption("Ask questions from your PDF, with Wikipedia fallback")
 
 # ----------------------------------
-# Sidebar Inputs (UI added)
+# Sidebar (UI ONLY)
 # ----------------------------------
-st.sidebar.header("Inputs")
-
-FILE_PATH = st.sidebar.text_input(
-    "Enter file path (PDF or TXT)",
-    value="data/sample.pdf"
+st.sidebar.header("Upload PDF")
+uploaded_file = st.sidebar.file_uploader(
+    "Upload a PDF document", type=["pdf"]
 )
 
-QUERY = st.sidebar.text_input(
+query = st.sidebar.text_input(
     "Enter your question",
-    value="what is oops?"
+    placeholder="e.g. What is BERT?"
 )
 
-run_button = st.sidebar.button("Run Query")
+run_button = st.sidebar.button("Ask")
 
 # ----------------------------------
-# Run only when button is clicked
+# Run Logic (UNCHANGED)
 # ----------------------------------
-if run_button:
+if uploaded_file and query and run_button:
 
-    # 1. Load documents
-    documents = []
+    # Save uploaded PDF temporarily
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(uploaded_file.read())
+        FILE_PATH = tmp.name
 
-    try:
-        ext = os.path.splitext(FILE_PATH)[1].lower()
-
-        if ext == ".pdf":
-            st.write("📄 Loading PDF...")
-            documents = PyPDFLoader(FILE_PATH).load()
-
-        elif ext == ".txt":
-            st.write("📄 Loading TXT...")
-            documents = TextLoader(FILE_PATH).load()
-
-        else:
-            st.error("Unsupported file type")
-            st.stop()
-
-    except Exception as e:
-        st.error(f"Document loading failed: {e}")
-        st.stop()
+    # 1. Load document
+    documents = PyPDFLoader(FILE_PATH).load()
 
     # 2. Chunking
-    st.write("✂️ Splitting documents into chunks...")
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=300,
         chunk_overlap=50
     )
     chunks = splitter.split_documents(documents)
-    st.write(f"Total chunks created: {len(chunks)}")
 
     # 3. Embeddings + Vector Store
-    st.write("🧠 Creating embeddings...")
     embeddings = HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
-
-    st.write("📦 Building vector store...")
     vectorstore = FAISS.from_documents(chunks, embeddings)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 2})
 
@@ -166,19 +146,17 @@ if run_button:
         | parser
     )
 
-    # 9. Execution Logic (UNCHANGED)
-    st.subheader("🔍 Result")
-
-    with st.spinner("Searching PDF..."):
-        answer = pdf_chain.invoke(QUERY)
+    # 9. Execution Logic (same as original)
+    answer = pdf_chain.invoke(query)
 
     if answer.strip().lower() == "not found in context":
-        st.info("Answer not found in PDF → Falling back to Wikipedia...")
-        with st.spinner("Searching Wikipedia..."):
-            answer = wiki_chain.invoke(QUERY)
+        answer = wiki_chain.invoke(query)
 
-    st.success("Final Answer")
+    # ----------------------------------
+    # Final Output (UI CLEAN)
+    # ----------------------------------
+    st.subheader("✅ Answer")
     st.write(answer)
 
-else:
-    st.info("Enter inputs from the sidebar and click **Run Query**")
+elif run_button:
+    st.warning("Please upload a PDF and enter a question.")
