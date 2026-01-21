@@ -17,35 +17,37 @@ from langchain_core.runnables import (
 )
 from langchain_core.output_parsers import StrOutputParser
 
-# ----------------------------------
+# -------------------------------------------------
 # Environment
-# ----------------------------------
+# -------------------------------------------------
 load_dotenv()
-st.set_page_config(page_title="Hybrid RAG App", layout="wide")
+
+st.set_page_config(page_title="Hybrid RAG: PDF + Wikipedia", layout="wide")
 
 st.title("📄 Hybrid RAG: PDF + Wikipedia")
-st.caption("Search uploaded PDF first, fallback to Wikipedia if needed")
+st.caption("Search uploaded PDF first, fallback to Wikipedia only if needed")
 
-# ----------------------------------
+# -------------------------------------------------
 # Sidebar
-# ----------------------------------
+# -------------------------------------------------
 st.sidebar.header("Upload Document")
 uploaded_file = st.sidebar.file_uploader(
     "Upload a PDF file", type=["pdf"]
 )
 
-# ----------------------------------
-# Helper: format docs safely
-# ----------------------------------
+# -------------------------------------------------
+# Helpers
+# -------------------------------------------------
 def format_docs(docs):
+    """Safely format retrieved documents for the LLM"""
     text = "\n\n".join(doc.page_content for doc in docs)
-    return text[:2500]  # token-safe for Groq
+    return text[:3000]  # token-safe for Groq
 
 parser = StrOutputParser()
 
-# ----------------------------------
-# Load PDF & Build Vector Store
-# ----------------------------------
+# -------------------------------------------------
+# PDF Processing (cached)
+# -------------------------------------------------
 @st.cache_resource
 def process_pdf(file):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
@@ -57,7 +59,7 @@ def process_pdf(file):
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=800,
-        chunk_overlap=200
+        chunk_overlap=150
     )
     chunks = splitter.split_documents(documents)
 
@@ -66,12 +68,14 @@ def process_pdf(file):
     )
 
     vectorstore = FAISS.from_documents(chunks, embeddings)
-    return vectorstore.as_retriever(search_kwargs={"k": 8})
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 8})
+
+    return retriever
 
 
-# ----------------------------------
-# Main Logic
-# ----------------------------------
+# -------------------------------------------------
+# Main App Logic
+# -------------------------------------------------
 if uploaded_file:
     with st.spinner("Processing PDF..."):
         retriever = process_pdf(uploaded_file)
@@ -86,12 +90,10 @@ if uploaded_file:
             temperature=0
         )
 
-        # -------- PDF RAG Prompt --------
+        # ---------------- PDF Prompt ----------------
         pdf_prompt = ChatPromptTemplate.from_template(
             """
-            Answer the question using ONLY the context below.
-            If the answer is not present, respond with:
-            "Not found in context"
+            Answer the question using the context below.
 
             Context:
             {context}
@@ -103,7 +105,7 @@ if uploaded_file:
             """
         )
 
-        # -------- Wikipedia Prompt --------
+        # ---------------- Wikipedia Prompt ----------------
         wiki_prompt = ChatPromptTemplate.from_template(
             """
             Answer the question using the Wikipedia context below.
@@ -118,7 +120,7 @@ if uploaded_file:
             """
         )
 
-        # -------- PDF RAG Chain --------
+        # ---------------- PDF RAG Chain ----------------
         pdf_chain = (
             RunnableParallel(
                 {
@@ -131,7 +133,7 @@ if uploaded_file:
             | parser
         )
 
-        # -------- Wikipedia Chain --------
+        # ---------------- Wikipedia Chain ----------------
         wiki_chain = (
             RunnableParallel(
                 {
@@ -150,19 +152,20 @@ if uploaded_file:
             | parser
         )
 
-        # -------- Run Hybrid Logic --------
+        # ---------------- Hybrid Decision Logic ----------------
         with st.spinner("Searching PDF..."):
-            answer = pdf_chain.invoke(query)
+            retrieved_docs = retriever.invoke(query)
 
-        if answer.strip().lower() == "not found in context":
-            st.info("Answer not found in PDF. Searching Wikipedia...")
+        if len(retrieved_docs) == 0:
+            st.info("No relevant content found in PDF. Searching Wikipedia...")
             with st.spinner("Searching Wikipedia..."):
                 answer = wiki_chain.invoke(query)
+        else:
+            with st.spinner("Answering from PDF..."):
+                answer = pdf_chain.invoke(query)
 
         st.subheader("Answer")
         st.write(answer)
 
 else:
     st.info("Please upload a PDF to begin.")
-
-
