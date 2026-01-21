@@ -21,11 +21,10 @@ from langchain_core.output_parsers import StrOutputParser
 # Environment
 # -------------------------------------------------
 load_dotenv()
-
 st.set_page_config(page_title="Hybrid RAG: PDF + Wikipedia", layout="wide")
 
 st.title("📄 Hybrid RAG: PDF + Wikipedia")
-st.caption("Search uploaded PDF first, fallback to Wikipedia only if needed")
+st.caption("Uses PDF when relevant, otherwise falls back to Wikipedia")
 
 # -------------------------------------------------
 # Sidebar
@@ -39,7 +38,6 @@ uploaded_file = st.sidebar.file_uploader(
 # Helpers
 # -------------------------------------------------
 def format_docs(docs):
-    """Safely format retrieved documents for the LLM"""
     text = "\n\n".join(doc.page_content for doc in docs)
     return text[:3000]  # token-safe for Groq
 
@@ -70,7 +68,7 @@ def process_pdf(file):
     vectorstore = FAISS.from_documents(chunks, embeddings)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 8})
 
-    return retriever
+    return vectorstore, retriever
 
 
 # -------------------------------------------------
@@ -78,7 +76,7 @@ def process_pdf(file):
 # -------------------------------------------------
 if uploaded_file:
     with st.spinner("Processing PDF..."):
-        retriever = process_pdf(uploaded_file)
+        vectorstore, retriever = process_pdf(uploaded_file)
 
     st.success("PDF processed successfully!")
 
@@ -152,12 +150,21 @@ if uploaded_file:
             | parser
         )
 
-        # ---------------- Hybrid Decision Logic ----------------
-        with st.spinner("Searching PDF..."):
-            retrieved_docs = retriever.invoke(query)
+        # ---------------- SIMILARITY-BASED FALLBACK ----------------
+        RELEVANCE_THRESHOLD = 0.6  # lower = stricter (tunable)
 
-        if len(retrieved_docs) == 0:
-            st.info("No relevant content found in PDF. Searching Wikipedia...")
+        with st.spinner("Evaluating PDF relevance..."):
+            docs_with_scores = vectorstore.similarity_search_with_score(
+                query, k=8
+            )
+
+        relevant_docs = [
+            doc for doc, score in docs_with_scores
+            if score < RELEVANCE_THRESHOLD
+        ]
+
+        if len(relevant_docs) == 0:
+            st.info("PDF is not relevant to the question. Searching Wikipedia...")
             with st.spinner("Searching Wikipedia..."):
                 answer = wiki_chain.invoke(query)
         else:
