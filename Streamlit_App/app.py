@@ -56,8 +56,8 @@ def process_pdf(file):
     documents = loader.load()
 
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=300,
-        chunk_overlap=50
+        chunk_size=800,
+        chunk_overlap=200
     )
     chunks = splitter.split_documents(documents)
 
@@ -66,7 +66,7 @@ def process_pdf(file):
     )
 
     vectorstore = FAISS.from_documents(chunks, embeddings)
-    return vectorstore.as_retriever(search_kwargs={"k": 2})
+    return vectorstore.as_retriever(search_kwargs={"k": 8})
 
 
 # ----------------------------------
@@ -164,4 +164,5 @@ if uploaded_file:
 
 else:
     st.info("Please upload a PDF to begin.")
+
 
