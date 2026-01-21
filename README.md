@@ -17,6 +17,7 @@ Built using **LangChain (LCEL)**, **Groq LLM**, **FAISS**, **HuggingFace embeddi
 - 🔒 No hallucination — answers are context-bound
 
 ---
+<img width="887" height="682" alt="Screenshot 2026-01-21 163744" src="https://github.com/user-attachments/assets/915ceb4a-779b-44c2-a9e5-9ca89971e6b3" />
 
 ## 🧠 Why Hybrid RAG?
 
@@ -33,7 +34,6 @@ This ensures answers are **accurate, grounded, and complete**.
 ---
 
 ## 🏗️ Architecture
-
 ```text
 User Question
       ↓
@@ -45,5 +45,4 @@ Relevant Context?
 
 
 
-<img width="887" height="682" alt="Screenshot 2026-01-21 163744" src="https://github.com/user-attachments/assets/915ceb4a-779b-44c2-a9e5-9ca89971e6b3" />
 
