@@ -26,38 +26,57 @@ load_dotenv()
 st.set_page_config(page_title="Hybrid RAG", layout="wide")
 
 # ----------------------------------
-# Custom Styling (UI ONLY)
+# Custom UI Styling
 # ----------------------------------
-st.markdown(
-    """
-    <style>
-    .main-title {
-        font-size: 40px;
-        font-weight: 800;
-        background: linear-gradient(90deg, #4ade80, #22d3ee);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-    .subtitle {
-        font-size: 16px;
-        color: #94a3b8;
-        margin-bottom: 25px;
-    }
-    .answer-box {
-        background-color: #0f172a;
-        padding: 20px;
-        border-radius: 12px;
-        border-left: 6px solid #22d3ee;
-        font-size: 16px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+st.markdown("""
+<style>
+.main-title {
+    font-size: 38px;
+    font-weight: 800;
+    color: #22d3ee;
+}
+.subtitle {
+    color: #94a3b8;
+    margin-bottom: 25px;
+}
+.chat-card {
+    background-color: #020617;
+    border-radius: 14px;
+    padding: 20px;
+    margin-top: 20px;
+    border: 1px solid #1e293b;
+}
+.answer-card {
+    background-color: #020617;
+    border-radius: 14px;
+    padding: 20px;
+    border-left: 6px solid #22d3ee;
+}
+.source-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+.pdf {
+    background-color: #064e3b;
+    color: #a7f3d0;
+}
+.wiki {
+    background-color: #1e3a8a;
+    color: #bfdbfe;
+}
+</style>
+""", unsafe_allow_html=True)
 
+# ----------------------------------
+# Header
+# ----------------------------------
 st.markdown('<div class="main-title">📄 Hybrid RAG</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="subtitle">Ask questions from your PDF with automatic Wikipedia fallback</div>',
+    '<div class="subtitle">Ask questions from your PDF with intelligent Wikipedia fallback</div>',
     unsafe_allow_html=True
 )
 
@@ -71,7 +90,7 @@ uploaded_file = st.sidebar.file_uploader(
 
 query = st.sidebar.text_input(
     "❓ Ask a question",
-    placeholder="e.g. What is BERT?"
+    placeholder="e.g. What problem does BERT solve?"
 )
 
 ask_button = st.sidebar.button("🚀 Ask")
@@ -89,9 +108,9 @@ parser = StrOutputParser()
 # ----------------------------------
 if uploaded_file and query and ask_button:
 
-    with st.spinner("🔍 Reading and analyzing your document..."):
+    with st.spinner("🤔 Thinking..."):
 
-        # Save uploaded file
+        # Save uploaded PDF
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             tmp.write(uploaded_file.read())
             FILE_PATH = tmp.name
@@ -181,20 +200,31 @@ if uploaded_file and query and ask_button:
             | parser
         )
 
-        # Execution
+        # Execution Logic
         answer = pdf_chain.invoke(query)
+        source = "pdf"
 
         if answer.strip().lower() == "not found in context":
             answer = wiki_chain.invoke(query)
+            source = "wiki"
 
     # ----------------------------------
-    # Final Answer UI
+    # UI Output
     # ----------------------------------
-    st.markdown("### ✅ Answer")
+    st.markdown('<div class="chat-card">', unsafe_allow_html=True)
+    st.markdown(f"**🧑 You:** {query}")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    badge = "📄 PDF" if source == "pdf" else "🌐 Wikipedia"
+    badge_class = "pdf" if source == "pdf" else "wiki"
+
+    st.markdown('<div class="answer-card">', unsafe_allow_html=True)
     st.markdown(
-        f'<div class="answer-box">{answer}</div>',
+        f'<span class="source-badge {badge_class}">{badge}</span>',
         unsafe_allow_html=True
     )
+    st.markdown(answer)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 elif ask_button:
     st.warning("⚠️ Please upload a PDF and enter a question.")
