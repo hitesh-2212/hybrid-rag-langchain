@@ -120,8 +120,8 @@ if uploaded_file and query and ask_button:
 
         # Chunking
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=300,
-            chunk_overlap=50
+            chunk_size=800,
+            chunk_overlap=200
         )
         chunks = splitter.split_documents(documents)
 
@@ -130,7 +130,7 @@ if uploaded_file and query and ask_button:
             model_name="sentence-transformers/all-MiniLM-L6-v2"
         )
         vectorstore = FAISS.from_documents(chunks, embeddings)
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 2})
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
         # LLM
         llm = ChatGroq(
@@ -228,3 +228,4 @@ if uploaded_file and query and ask_button:
 
 elif ask_button:
     st.warning("⚠️ Please upload a PDF and enter a question.")
+
