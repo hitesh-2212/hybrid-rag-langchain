@@ -1,5 +1,8 @@
+# 1. Imports
+
 import os
 from dotenv import load_dotenv
+
 from langchain_community.document_loaders import (PyPDFLoader,TextLoader,WikipediaLoader)
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
@@ -9,45 +12,61 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import (RunnableParallel,RunnablePassthrough,RunnableLambda)
 from langchain_core.output_parsers import StrOutputParser
 
+
+# 2. Environment & Inputs
+
 load_dotenv()
 
+FILE_PATH = "data/sample.pdf"        # .pdf or .txt
+QUERY = "What is delhi?"             
 
-# Inputs
 
-FILE_PATH = "data/sample.pdf"
-QUERY = "what is oops?"
-
-# 1. Load documents
+# 3. Load Documents 
 
 documents = []
+DOCUMENT_SOURCE = "pdf"
 
 try:
     ext = os.path.splitext(FILE_PATH)[1].lower()
 
     if ext == ".pdf":
-        print("Loading PDF...")
+        print("Loading PDF document...")
         documents = PyPDFLoader(FILE_PATH).load()
 
     elif ext == ".txt":
-        print("Loading TXT...")
-        documents = TextLoader(FILE_PATH).load()
+        print("Loading text document...")
+        documents = TextLoader(FILE_PATH, encoding="utf-8").load()
+
+    else:
+        raise ValueError("Unsupported file type")
 
 except Exception as e:
     print("Document loading failed:", e)
     documents = []
 
 
-# 2. Chunking
+# 4. Wikipedia Fallback (NO DOCUMENT FOUND)
+
+if not documents:
+    print("No local document found → Falling back to Wikipedia...")
+    documents = WikipediaLoader(
+        query=QUERY,
+        load_max_docs=2
+    ).load()
+    DOCUMENT_SOURCE = "wikipedia"
+
+
+# 5. Chunking
 
 print("Splitting documents into chunks...")
 splitter = RecursiveCharacterTextSplitter(
-    chunk_size=300,
-    chunk_overlap=50
+    chunk_size=800,
+    chunk_overlap=200
 )
 chunks = splitter.split_documents(documents)
-print(f"Total chunks: {len(chunks)}")
+print(f"Total chunks created: {len(chunks)}")
 
-# 3. Embeddings + Vector Store
+# 6. Embeddings + Vector Store
 
 print("Creating embeddings...")
 embeddings = HuggingFaceEmbeddings(
@@ -56,22 +75,20 @@ embeddings = HuggingFaceEmbeddings(
 
 print("Building vector store...")
 vectorstore = FAISS.from_documents(chunks, embeddings)
-retriever = vectorstore.as_retriever(search_kwargs={"k": 2})
+retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
-# 4. LLM
+# 7. LLM
 
 llm = ChatGroq(
     model="llama-3.1-8b-instant",
     temperature=0
 )
 
-# 5. Prompts
+# 8. Prompt
 
 rag_prompt = ChatPromptTemplate.from_template(
     """
     Answer the question using ONLY the context below.
-    If the answer is not present, respond with:
-    "Not found in context"
 
     Context:
     {context}
@@ -83,63 +100,74 @@ rag_prompt = ChatPromptTemplate.from_template(
     """
 )
 
-wiki_prompt = ChatPromptTemplate.from_template(
-    """
-    Answer the question using the Wikipedia context below.
 
-    Context:
-    {context}
-
-    Question:
-    {question}
-
-    Answer:
-    """
-)
-
-# 6. Context formatter 
+# 9. Helpers
 
 def format_docs(docs):
-    text = "\n\n".join(doc.page_content for doc in docs)
-    return text
+    return "\n\n".join(doc.page_content for doc in docs)
 
 parser = StrOutputParser()
 
 
-# 7. PDF RAG Chain
+# 10. LCEL RAG Chain
 
-pdf_chain = (
-    RunnableParallel(
+rag_chain =RunnableParallel(
         {
             "context": retriever | RunnableLambda(format_docs),
             "question": RunnablePassthrough()
         })
-    | rag_prompt| llm | parser
-)
+
+final_chain=rag_chain|rag_prompt|llm|parser
+
+# 11. Run Query (PDF FIRST)
+
+print("\nQuery:", QUERY)
+print("Searching PDF...\n")
+
+answer = final_chain.invoke(QUERY)
 
 
-# 8. Wikipedia Chain
+# 12. QUERY-LEVEL FALLBACK 
 
-wiki_chain = (
-    RunnableParallel(
-        {
-            "context": RunnableLambda(
-                lambda q: WikipediaLoader(
-                    query=q,
-                    load_max_docs=2
-                ).load()
-            )| RunnableLambda(format_docs),
-            "question": RunnablePassthrough()
-        })| wiki_prompt| llm| parser)
+fallback_triggers = [
+    "no information",
+    "not present",
+    "not found",
+    "does not contain",
+    "cannot find"
+]
 
-# 9.Execution Logic
+if any(trigger in answer.lower() for trigger in fallback_triggers):
+    print("Query not answered by PDF → Falling back to Wikipedia...\n")
 
-print("\nSearching PDF...\n")
-answer = pdf_chain.invoke(QUERY)
+    # Load Wikipedia docs
+    wiki_docs = WikipediaLoader(
+        query=QUERY,
+        load_max_docs=2
+    ).load()
 
-if answer.strip().lower() == "not found in context":
-    print("Answer not found in PDF → Falling back to Wikipedia...\n")
+    # Chunk Wikipedia docs
+    wiki_chunks = splitter.split_documents(wiki_docs)
+
+    # Build Wiki vector store
+    wiki_vectorstore = FAISS.from_documents(wiki_chunks, embeddings)
+    wiki_retriever = wiki_vectorstore.as_retriever(search_kwargs={"k": 3})
+
+    # Wiki RAG Chain
+    wiki_chain = (
+        RunnableParallel(
+            {
+                "context": wiki_retriever | RunnableLambda(format_docs),
+                "question": RunnablePassthrough()
+            }
+        )| rag_prompt| llm| parser )
+
     answer = wiki_chain.invoke(QUERY)
+    DOCUMENT_SOURCE = "wikipedia"
 
+
+# 13. Final Output
+
+print(f"Answer Source: {DOCUMENT_SOURCE.upper()}\n")
 print("Final Answer:\n")
 print(answer)
