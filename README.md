@@ -1,6 +1,6 @@
 # 📄 Hybrid RAG: PDF + Wikipedia Question Answering
-
-A **Hybrid Retrieval-Augmented Generation (RAG)** application that answers user questions by **prioritizing uploaded PDF documents** and **intelligently falling back to Wikipedia** when the document does not contain the required information.
+## App Link:-https: https://hybrid-rag-langchain-s8vzbebntzjjucnd5i8x2x.streamlit.app/
+**Hybrid Retrieval-Augmented Generation (RAG)** application that answers user questions by **prioritizing uploaded PDF documents** and **intelligently falling back to Wikipedia** when the document does not contain the required information.
 
 Built using **LangChain (LCEL)**, **Groq LLM**, **FAISS**, **HuggingFace embeddings**, and an **interactive Streamlit UI**.
 
